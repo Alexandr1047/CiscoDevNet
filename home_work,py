@@ -1,0 +1,34 @@
+#!/usr/local/bin/python3.6
+# -*- coding: utf-8 -*-
+from netmiko import ConnectHandler
+import datetime, getpass, re
+user = 'cisco'
+password = 'cisco'
+ip_list = ['192.168.100.1','192.168.100.2','192.168.100.3','192.168.100.4','192.168.100.5']
+dt = datetime.datetime.now()
+tag_data = dt.strftime("%m:%d:%Y")
+for ip in ip_list:
+    device_params = {'device_type': 'cisco_ios', 'ip': ip, 'username': user, 'password': password}
+    with ConnectHandler(**device_params) as ssh:
+        hostname_str = ssh.send_command('show running-config | i hostname')
+        for line in hostname_str.split('\n'):
+            if line.startswith('hostname'):
+                hostname = line.split()[-1]
+        with open(f'/opt/file_config/{tag_data}_{hostname}.conf', 'w') as f:
+            f.write(ssh.send_command('show running-config'))
+        if 'cdp run' == ssh.send_command('show running-config all | i cdp run'):
+            req_cdp = ssh.send_command('show cdp neighbors detail | i Device ID')
+            status_cdp = 'CDP is ON, {} pers'.format(len(req_cdp.splitlines()))
+        else:
+            status_cdp = 'CDP is ON, 0 pers'
+        version_ios = re.search('System image file is "flash:/*(\S+)"', ssh.send_command('show version | i image')).group(1)
+        if 'npe' in version_ios:
+            npe = 'NPE'
+        else:
+            npe = 'PE'
+        ssh.send_config_set(['clock timezone GMT +0', 'ntp server 192.168.100.100', 'ntp server 192.168.100.101'])
+        if ssh.send_command('show ntp status | i Clock is synchronized'):
+            ntp_status = 'Clock in Sync'
+        else:
+            ntp_status = 'Clock no Sync'
+        print('|'.join([hostname, version_ios, npe, status_cdp, ntp_status]))
